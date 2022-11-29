@@ -91,7 +91,7 @@ func tokenSourceForSubject(ctx context.Context, serviceAccountFilePath string, s
 	return ts, nil
 }
 
-func (d *Client) GetAllFilesWithPermissions(ctx context.Context, status chan<- int) (map[string]File, error) {
+func (d *Client) GetAllFilesWithPermissions(ctx context.Context, status chan<- File) (map[string]File, error) {
 	defer close(status)
 	allFiles := make(map[string]File)
 	// all users
@@ -190,7 +190,20 @@ func (d *Client) GetAllFilesWithPermissions(ctx context.Context, status chan<- i
 				} else {
 					parent = file.DriveId // if file has no parent but belongs to a drive, that's the parent. DriveId is only populated for team drives
 				}
-				allFiles[file.Id] = File{
+				/*
+					allFiles[file.Id] = File{
+						ID:          file.Id,
+						Name:        file.Name,
+						Permissions: permissions,
+						Parent:      parent,
+						MimeType:    file.MimeType,
+						OpenURL:     file.WebViewLink,
+					}
+					if status != nil {
+						status <- len(allFiles) // update status
+					}
+				*/
+				toSave := File{
 					ID:          file.Id,
 					Name:        file.Name,
 					Permissions: permissions,
@@ -198,8 +211,9 @@ func (d *Client) GetAllFilesWithPermissions(ctx context.Context, status chan<- i
 					MimeType:    file.MimeType,
 					OpenURL:     file.WebViewLink,
 				}
+				allFiles[file.Id] = toSave
 				if status != nil {
-					status <- len(allFiles) // update status
+					status <- toSave
 				}
 			}
 			if r.NextPageToken == "" { // done

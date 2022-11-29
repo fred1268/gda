@@ -5,31 +5,40 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"google-drive-audit/googledrive"
-	"google-drive-audit/util"
 	"io"
 	"os"
+
+	"google-drive-audit/googledrive"
+	"google-drive-audit/util"
 )
 
 func ExportFileListToCSV(ctx context.Context, w io.Writer, domain, administratorEmail string, fromCache, showProgress bool, serviceAccountFilePath string) error {
-	var (
-		files map[string]googledrive.File
-		err   error
-	)
+	var files map[string]googledrive.File // err   error
 	if !fromCache {
 		gd, err := googledrive.NewClient(ctx, domain, administratorEmail, serviceAccountFilePath)
 		if err != nil {
 			return fmt.Errorf("error creating service: %v", err)
 		}
 		// get files
-		var status chan int
+		var status chan googledrive.File
 		if showProgress {
-			status = make(chan int)
+			csvWriter := csv.NewWriter(w)
+			csvWriter.UseCRLF = true
+			defer csvWriter.Flush()
+			err = csvWriter.Write([]string{"File name", "Person", "Role", "Type", "URL"})
+			if err != nil {
+				return err
+			}
+			status = make(chan googledrive.File)
 			go func() { // print status
-				for s := range status {
-					_, _ = fmt.Fprintf(os.Stderr, "\u001B[2K\rFiles processed: %d", s)
+				for file := range status {
+					for email, role := range file.Permissions {
+						err = csvWriter.Write([]string{file.Name, email, role, file.MimeType, file.OpenURL})
+						if err != nil {
+							fmt.Printf("\nCannot write file %s\n", file.Name)
+						}
+					}
 				}
-				_, _ = fmt.Fprint(os.Stderr, "\n")
 			}()
 		}
 		files, err = gd.GetAllFilesWithPermissions(ctx, status)
@@ -40,57 +49,58 @@ func ExportFileListToCSV(ctx context.Context, w io.Writer, domain, administrator
 		if err != nil {
 			return err
 		}
-	} else {
-		files, err = loadFromDisk()
+		// } else {
+		// 	files, err = loadFromDisk()
+		// 	if err != nil {
+		// 		return err
+		// 	}
+	}
+	/*
+		// resolve full path
+		type FileWithPath struct {
+			googledrive.File
+			FullPath string
+		}
+		allFiles := make([]FileWithPath, 0)
+		filemap := make(map[string]googledrive.File)
+		for _, file := range files {
+			filemap[file.ID] = file
+		}
+		for _, file := range files {
+			fullPath := file.Name
+			currentFile := file
+			for {
+				if currentFile.Parent == "" {
+					break
+				} else if parentFile, ok := filemap[currentFile.Parent]; ok { // navigate to parent
+					fullPath = parentFile.Name + "/" + fullPath
+					currentFile = parentFile
+				} else { // edge case: parent is defined but not found
+					fullPath = "$" + currentFile.Parent + "/" + fullPath
+					break
+				}
+			}
+			allFiles = append(allFiles, FileWithPath{File: file, FullPath: fullPath})
+		}
+
+		// print
+		csvWriter := csv.NewWriter(w)
+		csvWriter.UseCRLF = true
+		defer csvWriter.Flush()
+		err = csvWriter.Write([]string{"File name", "Person", "Role", "Type", "URL"})
 		if err != nil {
 			return err
 		}
-	}
 
-	// resolve full path
-	type FileWithPath struct {
-		googledrive.File
-		FullPath string
-	}
-	allFiles := make([]FileWithPath, 0)
-	filemap := make(map[string]googledrive.File)
-	for _, file := range files {
-		filemap[file.ID] = file
-	}
-	for _, file := range files {
-		fullPath := file.Name
-		currentFile := file
-		for {
-			if currentFile.Parent == "" {
-				break
-			} else if parentFile, ok := filemap[currentFile.Parent]; ok { // navigate to parent
-				fullPath = parentFile.Name + "/" + fullPath
-				currentFile = parentFile
-			} else { // edge case: parent is defined but not found
-				fullPath = "$" + currentFile.Parent + "/" + fullPath
-				break
+		for _, file := range allFiles {
+			for email, role := range file.Permissions {
+				err = csvWriter.Write([]string{file.FullPath, email, role, file.MimeType, file.OpenURL})
+				if err != nil {
+					return err
+				}
 			}
 		}
-		allFiles = append(allFiles, FileWithPath{File: file, FullPath: fullPath})
-	}
-
-	// print
-	csvWriter := csv.NewWriter(w)
-	csvWriter.UseCRLF = true
-	defer csvWriter.Flush()
-	err = csvWriter.Write([]string{"File name", "Person", "Role", "Type", "URL"})
-	if err != nil {
-		return err
-	}
-
-	for _, file := range allFiles {
-		for email, role := range file.Permissions {
-			err = csvWriter.Write([]string{file.FullPath, email, role, file.MimeType, file.OpenURL})
-			if err != nil {
-				return err
-			}
-		}
-	}
+	*/
 	return nil
 }
 
