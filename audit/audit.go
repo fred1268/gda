@@ -29,6 +29,7 @@ func ExportFileListToCSV(ctx context.Context, w io.Writer, domain, administrator
 			if err != nil {
 				return err
 			}
+			count := 0
 			status = make(chan googledrive.File)
 			go func() { // print status
 				for file := range status {
@@ -38,7 +39,10 @@ func ExportFileListToCSV(ctx context.Context, w io.Writer, domain, administrator
 							fmt.Printf("\nCannot write file %s\n", file.Name)
 						}
 					}
+					_, _ = fmt.Fprintf(os.Stderr, "\u001B[2K\rFiles processed: %d", count)
+					count++
 				}
+				_, _ = fmt.Fprint(os.Stderr, "\n")
 			}()
 		}
 		files, err = gd.GetAllFilesWithPermissions(ctx, status)
