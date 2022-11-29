@@ -3,7 +3,7 @@ package googledrive
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -75,7 +75,7 @@ func (d *Client) getDriveClientForUser(ctx context.Context, userEmail string) (*
 }
 
 func tokenSourceForSubject(ctx context.Context, serviceAccountFilePath string, subject *string, scopes ...string) (oauth2.TokenSource, error) {
-	jsonCredentials, err := ioutil.ReadFile(serviceAccountFilePath)
+	jsonCredentials, err := os.ReadFile(serviceAccountFilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -98,12 +98,16 @@ func (d *Client) GetAllFilesWithPermissions(ctx context.Context, status chan<- i
 	for _, userEmail := range d.userEmails {
 		srv, err := d.getDriveClientForUser(ctx, userEmail)
 		if err != nil {
-			return nil, err
+			fmt.Printf("\nSkipping user %s\n", userEmail)
+			continue
+			// return nil, err
 		}
 		// all drives
 		drives, err := getDrives(srv)
 		if err != nil {
-			return nil, err
+			fmt.Printf("\nSkipping user %s's drive\n", userEmail)
+			continue
+			// return nil, err
 		}
 		for _, d := range drives {
 			allFiles[d.Id] = File{
@@ -115,7 +119,9 @@ func (d *Client) GetAllFilesWithPermissions(ctx context.Context, status chan<- i
 		// my drive
 		myDriveFile, err := srv.Files.Get("root").Fields("id").Context(ctx).Do() // id="root" is undocumented
 		if err != nil {
-			return nil, err
+			fmt.Printf("\nSkipping user %s my drive\n", userEmail)
+			continue
+			// return nil, err
 		}
 		allFiles[myDriveFile.Id] = File{
 			ID:   myDriveFile.Id,
@@ -137,10 +143,14 @@ func (d *Client) GetAllFilesWithPermissions(ctx context.Context, status chan<- i
 			}
 			r, err := call.Do()
 			if err != nil {
-				return nil, fmt.Errorf("unable to retrieve files: %v", err)
+				fmt.Printf("\nSkipping user %s files\n", userEmail)
+				continue
+				// return nil, fmt.Errorf("unable to retrieve files: %v", err)
 			}
 			if r.IncompleteSearch {
-				return nil, fmt.Errorf("unable to retrieve all files, incomplete search")
+				fmt.Printf("\nSkipping user %s because of incomplete search\n", userEmail)
+				continue
+				// return nil, fmt.Errorf("unable to retrieve all files, incomplete search")
 			}
 			for _, file := range r.Files {
 				if _, contains := allFiles[file.Id]; contains {
@@ -157,7 +167,9 @@ func (d *Client) GetAllFilesWithPermissions(ctx context.Context, status chan<- i
 					// get permissions with separate calls
 					ps, err := getPermissionsForFile(srv, file)
 					if err != nil {
-						return nil, err
+						fmt.Printf("\nSkipping file %s - %s\n", file.Id, file.Name)
+						continue
+						// return nil, err
 					}
 					for _, p := range ps {
 						permissions[p.EmailAddress] = p.Role
@@ -168,7 +180,8 @@ func (d *Client) GetAllFilesWithPermissions(ctx context.Context, status chan<- i
 					permissions[owner.EmailAddress] = "owner"
 				}
 				if len(permissions) == 0 {
-					return nil, fmt.Errorf("did not get any file permissions: %s - %s", file.Id, file.Name)
+					permissions["undefined"] = fmt.Sprintf("did not get any file permissions: %s - %s", file.Id, file.Name)
+					// return nil, fmt.Errorf("did not get any file permissions: %s - %s", file.Id, file.Name)
 				}
 				// a file can have multiple parents (deprecated). We'll only choose one
 				var parent string
@@ -217,9 +230,10 @@ func getPermissionsForFile(srv *drive.Service, file *drive.File) ([]*drive.Permi
 			}
 			return nil, fmt.Errorf("unable to retrieve permissions for file %s %s: %v", file.Id, file.Name, err)
 		}
-		for _, i := range r.Permissions {
-			result = append(result, i)
-		}
+		result = append(result, r.Permissions...)
+		// for _, i := range r.Permissions {
+		// 	result = append(result, i)
+		// }
 		if r.NextPageToken == "" { // done
 			break
 		}
@@ -241,9 +255,10 @@ func getDrives(srv *drive.Service) ([]*drive.Drive, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, i := range d.Drives {
-			result = append(result, i)
-		}
+		result = append(result, d.Drives...)
+		// for _, i := range d.Drives {
+		// 	result = append(result, i)
+		// }
 		if d.NextPageToken == "" { // done
 			break
 		}
